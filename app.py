@@ -14,11 +14,13 @@ import xgboost as xgb
 import shap
 
 # --- 1. CONFIGURATION ---
-st.set_page_config(layout="wide", page_title="XGBoost + Zemin + Yıkım Analizi")
+st.set_page_config(layout="wide", page_title="Deprem Analiz Sistemi")
 
-# --- 2. HESAPLAMA MOTORLARI ---
+# --- 2. DAMAGE & SCENARIO LOGIC ---
 def get_damage_scenario(intensity):
-    """Hissedilen şiddete göre hasar senaryosu."""
+    """
+    Returns a text description and color based on the calculated Mercalli Intensity.
+    """
     if intensity < 4.0:
         return "HİSSEDİLMEZ / ÇOK HAFİF", "Sadece hassas cihazlar veya üst katlardakiler hisseder.", "green", 10
     elif intensity < 5.0:
@@ -33,6 +35,7 @@ def get_damage_scenario(intensity):
         return "AFET DÜZEYİNDE YIKIM", "Ağır hasar ve göçme riski yüksek.", "#8B0000", 100
 
 def calculate_damage_potential(magnitude, soil_factor):
+    # Formula: Magnitude * (1 + (SoilFactor - 1) * 0.5)
     estimated_intensity = magnitude * (1 + (soil_factor - 1) * 0.5)
     damage_score = min(100, (estimated_intensity ** 2) * 1.5)
     return estimated_intensity, damage_score
@@ -85,6 +88,7 @@ def train_models_cached(df):
     if 'foreshock_count_7d' in df.columns and 'seismic_b_value' in df.columns:
         features += ['foreshock_count_7d', 'seismic_b_value']
     
+    # Noise Filtering
     noise_value = 0.556362
     clean_df = df[abs(df['seismic_b_value'] - noise_value) > 0.0001].copy()
     
@@ -92,10 +96,12 @@ def train_models_cached(df):
     y_class = (clean_df['Mg'] >= 4.0).astype(int)
     y_reg = clean_df['Mg']
     
+    # Split
     X_train, X_test, y_c_train, y_c_test, y_r_train, y_r_test = train_test_split(
         X, y_class, y_reg, test_size=0.2, random_state=42, stratify=y_class
     )
     
+    # --- 1. CLASSIFICATION (Risk) ---
     rf_class = RandomForestClassifier(n_estimators=100, class_weight='balanced', random_state=42)
     rf_class.fit(X_train, y_c_train)
     
@@ -105,6 +111,7 @@ def train_models_cached(df):
     )
     xgb_class.fit(X_train, y_c_train)
     
+    # --- 2. REGRESSION (Magnitude) ---
     rf_reg = RandomForestRegressor(n_estimators=100, random_state=42)
     rf_reg.fit(X_train, y_r_train)
     
@@ -113,6 +120,7 @@ def train_models_cached(df):
     )
     xgb_reg.fit(X_train, y_r_train)
     
+    # --- 3. METRICS ---
     rf_acc = accuracy_score(y_c_test, rf_class.predict(X_test))
     xgb_acc = accuracy_score(y_c_test, xgb_class.predict(X_test))
     
@@ -209,9 +217,11 @@ def load_soil_data(file_path):
 
 def get_soil_factor(city, district, soil_map):
     default_risk = 1.3
+    # 1. Direct match
     if city in soil_map:
         if district in soil_map[city]: return soil_map[city][district]
-    # Fallback search
+    
+    # 2. Case insensitive match (Backup)
     try:
         city_lower = city.lower()
         district_lower = district.lower()
@@ -239,6 +249,7 @@ def main():
         st.session_state['is_simulation'] = False
         st.session_state['used_model'] = "XGBoost"
 
+    # Paths
     base_dir = os.path.dirname(os.path.abspath(__file__))
     data_file = os.path.join(base_dir, "data_ready_for_ml.csv")
     loc_file = os.path.join(base_dir, "ilce_bilgi.txt")
@@ -253,6 +264,7 @@ def main():
 
     tab1, tab2 = st.tabs(["📍 Zemin & Hasar Analizi", "🔬 Model ve Parametreler"])
     
+    # --- TAB 1 ---
     with tab1:
         col1, col2 = st.columns([1, 2])
         with col1:
@@ -331,7 +343,6 @@ def main():
                 k3.metric("Zemin", f"x{st.session_state['soil_factor']}")
                 k4.metric("Şiddet (MMI)", f"{intensity:.1f}", delta="Hasar Riski" if intensity>6.0 else "Normal")
                 
-                # --- YENİ EKLENEN HASAR BÖLÜMÜ ---
                 st.divider()
                 st.markdown("### 🏚️ Tahmini Yıkım ve Hasar Analizi")
                 dmg_title, dmg_desc, dmg_color, dmg_percent = get_damage_scenario(intensity)
@@ -339,7 +350,6 @@ def main():
                     st.markdown(f"<h3 style='color:{dmg_color}; margin-bottom:0px;'>{dmg_title}</h3>", unsafe_allow_html=True)
                     st.progress(dmg_percent / 100)
                     st.info(f"**Beklenen Etki:** {dmg_desc}")
-                # ----------------------------------
 
                 m = folium.Map(location=[lat, lon], zoom_start=10)
                 subset = df[df['Mg'] >= 3.0]
@@ -352,47 +362,32 @@ def main():
                 map_html = m.get_root().render()
                 components.html(map_html, height=500)
 
-       # --- TAB 2: SHAP & COMPARISON ---
+    # --- TAB 2 (FIXED) ---
     with tab2:
         st.header("🧠 Model Karşılaştırma & Karar Mekanizması")
         
-        # 1. METRICS
+        # 1. METRICS (Re-added Random Forest values)
         st.subheader("1. Performans Metrikleri")
         c1, c2, c3 = st.columns(3)
-        
-        # DOĞRULUK
         with c1:
             st.markdown("**Risk Tespiti (Doğruluk)**")
-            # Random Forest (Eksik olan satır buydu)
             st.metric("Random Forest", f"%{metrics['rf_acc']*100:.1f}")
-            # XGBoost
-            st.metric("XGBoost", f"%{metrics['xgb_acc']*100:.1f}", 
-                     delta=f"{(metrics['xgb_acc']-metrics['rf_acc'])*100:.1f}%")
-
-        # HATA PAYI (MAE)
+            st.metric("XGBoost", f"%{metrics['xgb_acc']*100:.1f}", delta=f"{(metrics['xgb_acc']-metrics['rf_acc'])*100:.1f}%")
         with c2:
             st.markdown("**Büyüklük Hatası (MAE)**")
-            # Random Forest (Eksik olan satır buydu)
             st.metric("Random Forest", f"{metrics['rf_mae']:.2f}")
-            # XGBoost
-            st.metric("XGBoost", f"{metrics['xgb_mae']:.2f}", 
-                     delta=f"{metrics['rf_mae']-metrics['xgb_mae']:.2f}", delta_color="inverse")
-
-        # R2 SKORU
+            st.metric("XGBoost", f"{metrics['xgb_mae']:.2f}", delta=f"{metrics['rf_mae']-metrics['xgb_mae']:.2f}", delta_color="inverse")
         with c3:
             st.markdown("**Açıklayıcılık (R²)**")
-            # Random Forest (Eksik olan satır buydu)
             st.metric("Random Forest", f"{metrics['rf_r2']:.2f}")
-            # XGBoost
-            st.metric("XGBoost", f"{metrics['xgb_r2']:.2f}", 
-                     delta=f"{metrics['xgb_r2']-metrics['rf_r2']:.2f}")
+            st.metric("XGBoost", f"{metrics['xgb_r2']:.2f}", delta=f"{metrics['xgb_r2']-metrics['rf_r2']:.2f}")
 
         st.divider()
         st.subheader("2. Karar Gerekçeleri (SHAP Analizi)")
 
-        # SHAP GRAFİKLERİ (Zaten çalışıyordu, aynen koruyoruz)
         if st.session_state['prediction_made'] and st.session_state['input_data'] is not None:
             col_xgb, col_rf = st.columns(2)
+            
             with col_xgb:
                 st.markdown("### XGBoost Görüşü")
                 try:
@@ -412,7 +407,6 @@ def main():
                         explainer_rf = shap.TreeExplainer(models['rf_class'])
                         shap_values_rf = explainer_rf(st.session_state['input_data'])
                         
-                        # SHAP versiyon uyumluluğu
                         if isinstance(shap_values_rf, list): shap_val = shap_values_rf[1]
                         elif len(shap_values_rf.shape) == 3: shap_val = shap_values_rf[:, :, 1]
                         else: shap_val = shap_values_rf
@@ -421,10 +415,9 @@ def main():
                         shap.plots.waterfall(shap_val[0], show=False)
                         st.pyplot(fig_rf)
                 except Exception as e:
-                     st.error(f"Grafik hatası: {e}")
+                     st.error(f"Grafik hatası (RF): {e}")
         else:
             st.warning("⚠️ Karşılaştırmayı görmek için önce 'Analiz Et' butonuna basarak bir tahmin yapmalısınız.")
 
 if __name__ == "__main__":
-
     main()
