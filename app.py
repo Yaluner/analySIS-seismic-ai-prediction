@@ -352,38 +352,79 @@ def main():
                 map_html = m.get_root().render()
                 components.html(map_html, height=500)
 
+       # --- TAB 2: SHAP & COMPARISON ---
     with tab2:
         st.header("🧠 Model Karşılaştırma & Karar Mekanizması")
+        
+        # 1. METRICS
+        st.subheader("1. Performans Metrikleri")
         c1, c2, c3 = st.columns(3)
+        
+        # DOĞRULUK
         with c1:
-            st.markdown("**Doğruluk**"); st.metric("XGBoost", f"%{metrics['xgb_acc']*100:.1f}")
+            st.markdown("**Risk Tespiti (Doğruluk)**")
+            # Random Forest (Eksik olan satır buydu)
+            st.metric("Random Forest", f"%{metrics['rf_acc']*100:.1f}")
+            # XGBoost
+            st.metric("XGBoost", f"%{metrics['xgb_acc']*100:.1f}", 
+                     delta=f"{(metrics['xgb_acc']-metrics['rf_acc'])*100:.1f}%")
+
+        # HATA PAYI (MAE)
         with c2:
-            st.markdown("**Hata Payı (MAE)**"); st.metric("XGBoost", f"{metrics['xgb_mae']:.2f}")
+            st.markdown("**Büyüklük Hatası (MAE)**")
+            # Random Forest (Eksik olan satır buydu)
+            st.metric("Random Forest", f"{metrics['rf_mae']:.2f}")
+            # XGBoost
+            st.metric("XGBoost", f"{metrics['xgb_mae']:.2f}", 
+                     delta=f"{metrics['rf_mae']-metrics['xgb_mae']:.2f}", delta_color="inverse")
+
+        # R2 SKORU
         with c3:
-            st.markdown("**R² Skoru**"); st.metric("XGBoost", f"{metrics['xgb_r2']:.2f}")
+            st.markdown("**Açıklayıcılık (R²)**")
+            # Random Forest (Eksik olan satır buydu)
+            st.metric("Random Forest", f"{metrics['rf_r2']:.2f}")
+            # XGBoost
+            st.metric("XGBoost", f"{metrics['xgb_r2']:.2f}", 
+                     delta=f"{metrics['xgb_r2']-metrics['rf_r2']:.2f}")
 
         st.divider()
+        st.subheader("2. Karar Gerekçeleri (SHAP Analizi)")
+
+        # SHAP GRAFİKLERİ (Zaten çalışıyordu, aynen koruyoruz)
         if st.session_state['prediction_made'] and st.session_state['input_data'] is not None:
             col_xgb, col_rf = st.columns(2)
             with col_xgb:
                 st.markdown("### XGBoost Görüşü")
-                with st.spinner("Hesaplanıyor..."):
-                    explainer_xgb = shap.TreeExplainer(models['xgb_class'])
-                    shap_values_xgb = explainer_xgb(st.session_state['input_data'])
-                    fig_xgb, ax_xgb = plt.subplots(figsize=(6, 5))
-                    shap.plots.waterfall(shap_values_xgb[0], show=False)
-                    st.pyplot(fig_xgb)
+                try:
+                    with st.spinner("XGBoost hesaplanıyor..."):
+                        explainer_xgb = shap.TreeExplainer(models['xgb_class'])
+                        shap_values_xgb = explainer_xgb(st.session_state['input_data'])
+                        fig_xgb, ax_xgb = plt.subplots(figsize=(6, 5))
+                        shap.plots.waterfall(shap_values_xgb[0], show=False)
+                        st.pyplot(fig_xgb)
+                except Exception as e:
+                    st.error(f"Grafik hatası: {e}")
+
             with col_rf:
                 st.markdown("### Random Forest Görüşü")
-                with st.spinner("Hesaplanıyor..."):
-                    explainer_rf = shap.TreeExplainer(models['rf_class'])
-                    shap_values_rf = explainer_rf(st.session_state['input_data'])
-                    if isinstance(shap_values_rf, list): shap_val_to_plot = shap_values_rf[1]
-                    elif len(shap_values_rf.shape) == 3: shap_val_to_plot = shap_values_rf[:, :, 1]
-                    else: shap_val_to_plot = shap_values_rf
-                    fig_rf, ax_rf = plt.subplots(figsize=(6, 5))
-                    shap.plots.waterfall(shap_val_to_plot[0], show=False)
-                    st.pyplot(fig_rf)
+                try:
+                    with st.spinner("Random Forest hesaplanıyor..."):
+                        explainer_rf = shap.TreeExplainer(models['rf_class'])
+                        shap_values_rf = explainer_rf(st.session_state['input_data'])
+                        
+                        # SHAP versiyon uyumluluğu
+                        if isinstance(shap_values_rf, list): shap_val = shap_values_rf[1]
+                        elif len(shap_values_rf.shape) == 3: shap_val = shap_values_rf[:, :, 1]
+                        else: shap_val = shap_values_rf
+                        
+                        fig_rf, ax_rf = plt.subplots(figsize=(6, 5))
+                        shap.plots.waterfall(shap_val[0], show=False)
+                        st.pyplot(fig_rf)
+                except Exception as e:
+                     st.error(f"Grafik hatası: {e}")
+        else:
+            st.warning("⚠️ Karşılaştırmayı görmek için önce 'Analiz Et' butonuna basarak bir tahmin yapmalısınız.")
 
 if __name__ == "__main__":
+
     main()
