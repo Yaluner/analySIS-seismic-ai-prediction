@@ -13,23 +13,23 @@ import matplotlib.pyplot as plt
 import xgboost as xgb
 import shap
 
-# --- 1. CONFIGURATION ---
-st.set_page_config(layout="wide", page_title="Deprem Analiz Sistemi")
+# 1. Yapılandırma
+st.set_page_config(layout="wide", page_title="analySIS")
 
-# --- 2. DAMAGE & SCENARIO LOGIC ---
+# Hasar ve Senaryo Sistemi
 def get_damage_scenario(intensity):
-    """
-    Returns a text description and color based on the calculated Mercalli Intensity.
-    """
-    if intensity < 4.0:
+    
+    # Mercalli Ölçeğine göre açıklama ve şiddetine göre renklendirme
+    
+    if intensity < 3.0:
         return "HİSSEDİLMEZ / ÇOK HAFİF", "Sadece hassas cihazlar veya üst katlardakiler hisseder.", "green", 10
-    elif intensity < 5.0:
+    elif intensity < 4.0:
         return "HAFİF SARSINTI", "Eşyalar sallanır, uyuyanlar uyanır. Yapısal hasar beklenmez.", "#a3c400", 30
-    elif intensity < 6.0:
+    elif intensity < 5.0:
         return "ORTA ŞİDDET (Hasar Sınırı)", "Sıva çatlakları, eşya devrilmeleri. Zayıf binalarda hafif hasar.", "orange", 50
-    elif intensity < 7.0:
+    elif intensity < 6.0:
         return "GÜÇLÜ SARSINTI", "Duvar çatlakları, baca yıkılmaları. Eski binalarda orta hasar.", "#FF4500", 75
-    elif intensity < 8.0:
+    elif intensity < 7.0:
         return "ÇOK GÜÇLÜ / YIKICI", "Binalarda yapısal hasar, duvar yıkılmaları riski.", "red", 90
     else:
         return "AFET DÜZEYİNDE YIKIM", "Ağır hasar ve göçme riski yüksek.", "#8B0000", 100
@@ -40,13 +40,13 @@ def calculate_damage_potential(magnitude, soil_factor):
     damage_score = min(100, (estimated_intensity ** 2) * 1.5)
     return estimated_intensity, damage_score
 
-# --- 3. COLORS & LEGEND ---
+# Renklendirme
 def get_red_tone(magnitude):
     if magnitude < 3.0: return '#FFC0CB'
     elif magnitude < 4.0: return '#FA8072'
     elif magnitude < 5.0: return '#FF0000'
     else: return '#8B0000'
-
+#Lejant
 def add_legend(map_object):
     legend_html = """
     <div style="position: fixed; bottom: 50px; left: 50px; width: 250px; z-index:9999; font-size:14px; background-color: white; color: black !important; opacity: 0.9; padding: 10px; border: 2px solid black; border-radius: 5px; font-family: Arial, sans-serif;">
@@ -64,7 +64,7 @@ def add_legend(map_object):
     """
     map_object.get_root().html.add_child(Element(legend_html))
 
-# --- 4. DATA LOADING ---
+# Veri Yükleme
 @st.cache_data
 def load_data(file_path):
     if not os.path.exists(file_path): return None
@@ -88,7 +88,7 @@ def train_models_cached(df):
     if 'foreshock_count_7d' in df.columns and 'seismic_b_value' in df.columns:
         features += ['foreshock_count_7d', 'seismic_b_value']
     
-    # Noise Filtering
+    # Veri Temizleme
     noise_value = 0.556362
     clean_df = df[abs(df['seismic_b_value'] - noise_value) > 0.0001].copy()
     
@@ -101,7 +101,7 @@ def train_models_cached(df):
         X, y_class, y_reg, test_size=0.2, random_state=42, stratify=y_class
     )
     
-    # --- 1. CLASSIFICATION (Risk) ---
+    # Risk Gruplandırma
     rf_class = RandomForestClassifier(n_estimators=100, class_weight='balanced', random_state=42)
     rf_class.fit(X_train, y_c_train)
     
@@ -111,7 +111,7 @@ def train_models_cached(df):
     )
     xgb_class.fit(X_train, y_c_train)
     
-    # --- 2. REGRESSION (Magnitude) ---
+    # Şiddet Gerilemesi
     rf_reg = RandomForestRegressor(n_estimators=100, random_state=42)
     rf_reg.fit(X_train, y_r_train)
     
@@ -120,7 +120,7 @@ def train_models_cached(df):
     )
     xgb_reg.fit(X_train, y_r_train)
     
-    # --- 3. METRICS ---
+    # Ölçeklendirme
     rf_acc = accuracy_score(y_c_test, rf_class.predict(X_test))
     xgb_acc = accuracy_score(y_c_test, xgb_class.predict(X_test))
     
@@ -135,7 +135,7 @@ def train_models_cached(df):
     
     return models, metrics, features, X_train
 
-# --- 5. LIVE METRICS ENGINE ---
+# Canlı Ölçeklendirme motoru
 def calculate_live_metrics(lat, lon, df):
     if 'Date' not in df.columns: return 0, 0.0
     latest_date = df['Date'].max()
@@ -160,7 +160,7 @@ def calculate_live_metrics(lat, lon, df):
     else: b_val = 1.0 
     return count, b_val
 
-# --- 6. FILE LOADERS ---
+# Dosya Yükleyici
 def load_locations_from_file(file_path):
     locations = {}
     if not os.path.exists(file_path): return None, f"Dosya yok: {file_path}"
@@ -221,7 +221,6 @@ def get_soil_factor(city, district, soil_map):
     if city in soil_map:
         if district in soil_map[city]: return soil_map[city][district]
     
-    # 2. Case insensitive match (Backup)
     try:
         city_lower = city.lower()
         district_lower = district.lower()
@@ -232,7 +231,7 @@ def get_soil_factor(city, district, soil_map):
     except: pass
     return default_risk
 
-# --- 7. MAIN APP ---
+# Ana Uygulama
 def main():
     st.title("Gelişmiş Deprem Analiz Sistemi")
     
@@ -262,9 +261,9 @@ def main():
     locations, error_msg = load_locations_from_file(loc_file)
     soil_map = load_soil_data(soil_file)
 
-    tab1, tab2 = st.tabs(["📍 Zemin & Hasar Analizi", "🔬 Model ve Parametreler"])
+    tab1, tab2 = st.tabs(["Zemin & Hasar Analizi", "Model ve Parametreler"])
     
-    # --- TAB 1 ---
+    # İlk sekme
     with tab1:
         col1, col2 = st.columns([1, 2])
         with col1:
@@ -275,9 +274,9 @@ def main():
                 lat_def, lon_def = locations[city][district]
                 soil_factor = get_soil_factor(city, district, soil_map)
                 
-                if soil_factor >= 2.0: st.warning(f"⚠️ Zemin: ÇOK YUMUŞAK (Sıvılaşma Riski) - {soil_factor}x")
-                elif soil_factor >= 1.5: st.info(f"ℹ️ Zemin: YUMUŞAK (Alüvyon) - {soil_factor}x")
-                else: st.success(f"✅ Zemin: SERT/KAYA - {soil_factor}x")
+                if soil_factor >= 2.0: st.warning(f"Zemin: ÇOK YUMUŞAK (Sıvılaşma Riski) - {soil_factor}x")
+                elif soil_factor >= 1.5: st.info(f"Zemin: YUMUŞAK (Alüvyon) - {soil_factor}x")
+                else: st.success(f"Zemin: SERT/KAYA - {soil_factor}x")
             else:
                 city, district = "HATA", "Manuel"
                 lat_def, lon_def = 38.0, 27.0
@@ -344,7 +343,7 @@ def main():
                 k4.metric("Şiddet (MMI)", f"{intensity:.1f}", delta="Hasar Riski" if intensity>6.0 else "Normal")
                 
                 st.divider()
-                st.markdown("### 🏚️ Tahmini Yıkım ve Hasar Analizi")
+                st.markdown("### Tahmini Yıkım ve Hasar Analizi")
                 dmg_title, dmg_desc, dmg_color, dmg_percent = get_damage_scenario(intensity)
                 with st.container():
                     st.markdown(f"<h3 style='color:{dmg_color}; margin-bottom:0px;'>{dmg_title}</h3>", unsafe_allow_html=True)
@@ -362,9 +361,9 @@ def main():
                 map_html = m.get_root().render()
                 components.html(map_html, height=500)
 
-    # --- TAB 2 (FIXED) ---
+    # 2. Sekme
     with tab2:
-        st.header("🧠 Model Karşılaştırma & Karar Mekanizması")
+        st.header("Model Karşılaştırma & Karar Mekanizması")
         
         # 1. METRICS (Re-added Random Forest values)
         st.subheader("1. Performans Metrikleri")
@@ -417,7 +416,8 @@ def main():
                 except Exception as e:
                      st.error(f"Grafik hatası (RF): {e}")
         else:
-            st.warning("⚠️ Karşılaştırmayı görmek için önce 'Analiz Et' butonuna basarak bir tahmin yapmalısınız.")
+            st.warning("Karşılaştırmayı görmek için önce 'Analiz Et' butonuna basarak bir tahmin yapmalısınız.")
 
 if __name__ == "__main__":
     main()
+
