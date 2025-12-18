@@ -233,7 +233,7 @@ def get_soil_factor(city, district, soil_map):
 
 # Ana Uygulama
 def main():
-    st.title("Gelişmiş Deprem Analiz Sistemi")
+    st.title("AnalySIS Yapay Zeka Destekli Deprem Şiddet Ve Yıkım Tahmin Sistemi")
     
     if 'prediction_made' not in st.session_state:
         st.session_state['prediction_made'] = False
@@ -248,7 +248,7 @@ def main():
         st.session_state['is_simulation'] = False
         st.session_state['used_model'] = "XGBoost"
 
-    # Paths
+    # Pathler
     base_dir = os.path.dirname(os.path.abspath(__file__))
     data_file = os.path.join(base_dir, "data_ready_for_ml.csv")
     loc_file = os.path.join(base_dir, "ilce_bilgi.txt")
@@ -420,4 +420,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
