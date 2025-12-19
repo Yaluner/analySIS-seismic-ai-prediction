@@ -233,7 +233,7 @@ def get_soil_factor(city, district, soil_map):
 
 # Ana Uygulama
 def main():
-    st.title("AnalySIS Yapay Zeka Destekli Deprem Şiddet Ve Yıkım Tahmin Sistemi")
+    st.title("AnalySIS Yapay Zeka Destekli Deprem Şiddet Ve Hasar Tahmin Sistemi")
     
     if 'prediction_made' not in st.session_state:
         st.session_state['prediction_made'] = False
@@ -420,5 +420,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
